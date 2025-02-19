@@ -3,9 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Heatmap</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@1.1.1"></script>
+    <title>Grid Heatmap</title>
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
     <style>
         body {
@@ -14,211 +12,82 @@
             background-color: #f4f4f4;
             padding: 20px;
         }
-        canvas {
-          max-width: 90%;
-          height: 600px;  /* Ensure reasonable height */
-          margin: auto;
-          background: white;
-          border-radius: 8px;
-          padding: 10px;
-          box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.1);
+        .heatmap-container {
+            display: inline-block;
+            overflow-x: auto;
+            border-collapse: collapse;
+            margin-top: 20px;
         }
-        .controls {
-            margin: 15px;
+        table {
+            border-collapse: collapse;
+            width: auto;
+            margin: auto;
         }
-        .legend {
-            display: flex;
-            justify-content: center;
-            margin-top: 10px;
-        }
-        .legend div {
-            width: 40px;
-            height: 15px;
-            margin: 0 5px;
+        th, td {
+            border: 1px solid black;
+            padding: 10px;
             text-align: center;
-            font-size: 12px;
-            line-height: 15px;
+        }
+        th {
+            background-color: #ccc;
         }
     </style>
 </head>
 <body>
-
-    <h2>Interactive Heatmap</h2>
-
-    <div class="controls">
-        <label for="categoryFilter">Filter by Category:</label>
-        <select id="categoryFilter" onchange="updateChart()">
-            <option value="all">All Categories</option>
-        </select>
+    <h2>Grid Heatmap</h2>
+    <div class="heatmap-container">
+        <table id="heatmap"></table>
     </div>
-
-    <canvas id="heatmap"></canvas>
-
-    <div class="legend" id="legend"></div>
-
+    
     <script>
-        let originalData = [];
-        let categories = [];
-        let subcategories = [];
-        let minVal = Infinity, maxVal = -Infinity;
-        let chartInstance = null;
-
         async function loadData() {
-            console.log("Loading data.csv...");
             const response = await fetch('data.csv?timestamp=' + new Date().getTime());
-
-            if (!response.ok) {
-                console.error("Error loading data.csv:", response.status);
-                return;
-            }
-
             const text = await response.text();
-            console.log("CSV Data Loaded:", text);
-
+            
             Papa.parse(text, {
                 header: true,
                 dynamicTyping: true,
                 complete: function(results) {
-                    console.log("Parsed Data:", results.data);
-                    originalData = results.data.filter(row => row.Category && row.SubCategory && !isNaN(row.Value));
-                    processData();
+                    const filteredData = results.data.filter(row => row[Object.keys(row)[0]] !== null && row[Object.keys(row)[0]] !== "");
+                    generateHeatmap(filteredData);
                 }
             });
         }
-
-        function processData() {
-            categories = [...new Set(originalData.map(row => row.Category))];
-            subcategories = [...new Set(originalData.map(row => row.SubCategory))];
-
-            minVal = Math.min(...originalData.map(row => row.Value));
-            maxVal = Math.max(...originalData.map(row => row.Value));
-
-            console.log("Categories:", categories);
-            console.log("Subcategories:", subcategories);
-            console.log("Min Value:", minVal, "Max Value:", maxVal);
-
-            populateFilter();
-            renderChart(originalData);
-            renderLegend();
-        }
-
-        function populateFilter() {
-            const filterDropdown = document.getElementById('categoryFilter');
-            filterDropdown.innerHTML = '<option value="all">All Categories</option>';
-            categories.forEach(cat => {
-                const option = document.createElement('option');
-                option.value = cat;
-                option.textContent = cat;
-                filterDropdown.appendChild(option);
+        
+        function generateHeatmap(data) {
+            const table = document.getElementById("heatmap");
+            table.innerHTML = "";
+            
+            if (data.length === 0) return;
+            
+            const columns = Object.keys(data[0]);
+            const minVal = Math.min(...data.flatMap(row => Object.values(row).slice(1)));
+            const maxVal = Math.max(...data.flatMap(row => Object.values(row).slice(1)));
+            
+            let headerRow = "<tr><th></th>" + columns.slice(1).map(col => `<th>${col}</th>`).join("") + "</tr>";
+            table.innerHTML += headerRow;
+            
+            let sums = new Array(columns.length - 1).fill(0);
+            
+            data.forEach(row => {
+                let rowHTML = `<tr><th>${row[columns[0]]}</th>`;
+                columns.slice(1).forEach((col, index) => {
+                    const val = row[col] || 0;
+                    sums[index] += val;
+                    const intensity = (val - minVal) / (maxVal - minVal);
+                    const color = `rgb(${255 - intensity * 255}, ${255}, ${255 - intensity * 255})`;
+                    rowHTML += `<td style="background-color:${color};">${val}</td>`;
+                });
+                rowHTML += "</tr>";
+                table.innerHTML += rowHTML;
             });
+            
+            let sumRow = `<tr><th>Sum</th>` + sums.map(sum => `<td>${sum}</td>`).join("") + "</tr>";
+            table.innerHTML += sumRow;
         }
-
-        function updateChart() {
-            const selectedCategory = document.getElementById('categoryFilter').value;
-            const filteredData = selectedCategory === "all" ? originalData : originalData.filter(row => row.Category === selectedCategory);
-            renderChart(filteredData);
-        }
-
-        function renderChart(data) {
-            if (chartInstance) chartInstance.destroy();
-
-            const dataset = data.map(row => ({
-                x: categories.indexOf(row.Category),
-                y: subcategories.indexOf(row.SubCategory),
-                v: row.Value || 0
-            }));
-
-            const canvas = document.getElementById('heatmap');
-            const ctx = canvas.getContext('2d');
-
-            // **Hard override Chart.js auto-resizing**
-            canvas.width = 800;            // Override default rendering dimensions
-            canvas.height = 300;
-
-            // 🔥 Prevent Chart.js from modifying dimensions
-            canvas.style.width = "800px";
-            canvas.style.height = "300px";
-            canvas.style.maxWidth = "800px";
-            canvas.style.maxHeight = "300px";
-
-            // **Ensure Chart.js doesn’t resize it automatically**
-            if (chartInstance) {
-                chartInstance.destroy();  // Destroy old chart before creating a new one
-            }
-
-            chartInstance = new Chart(ctx, {
-                type: 'matrix',
-                data: {
-                    datasets: [{
-                        label: 'Heatmap',
-                        data: dataset,
-                        backgroundColor(ctx) {
-                            const value = ctx.raw.v;
-                            const scaledValue = (value - minVal) / (maxVal - minVal);
-                            return `rgba(${255 - scaledValue * 255}, ${scaledValue * 255}, 150, 0.8)`;
-                        },
-                        borderColor: 'rgba(255,255,255,0.8)',
-                        borderWidth: 1,
-                        width: ({chart}) => {
-                            if (!chart.chartArea) return 30; // Default size for first render
-                            return Math.max(30, (chart.chartArea.width / Math.max(1, categories.length)) * 0.9);
-                        },
-                        height: ({chart}) => {
-                            if (!chart.chartArea) return 30;
-                            return Math.max(30, (chart.chartArea.height / Math.max(1, subcategories.length)) * 0.9);
-                        }
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    aspectRatio: categories.length / subcategories.length, // Forces grid proportion
-                    scales: {
-                        x: {
-                            type: 'category',
-                            labels: categories,
-                            title: { display: true, text: 'Categories' }
-                        },
-                        y: {
-                            type: 'category',
-                            labels: subcategories,
-                            title: { display: true, text: 'Subcategories' }
-                        }
-                    },
-                    plugins: {
-                        tooltip: {
-                            callbacks: {
-                                title: (items) => `Category: ${categories[items[0].raw.x]}`,
-                                label: (item) => `SubCategory: ${subcategories[item.raw.y]}, Value: ${item.raw.v}`
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function renderLegend() {
-            const legendDiv = document.getElementById('legend');
-            legendDiv.innerHTML = '';
-
-            const numSteps = 5;
-            for (let i = 0; i <= numSteps; i++) {
-                const value = minVal + ((maxVal - minVal) * (i / numSteps));
-                const intensity = (value - minVal) / (maxVal - minVal);
-                const color = `rgba(${255 - intensity * 255}, ${intensity * 255}, 150, 0.8)`;
-
-                const legendItem = document.createElement('div');
-                legendItem.style.backgroundColor = color;
-                legendItem.textContent = Math.round(value);
-                legendDiv.appendChild(legendItem);
-            }
-        }
-
-        //setInterval(loadData, 10000);
+        
         loadData();
     </script>
-
 </body>
 </html>
-
 

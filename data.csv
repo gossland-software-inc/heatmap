@@ -1,11 +1,4 @@
-Category,SubCategory,Value
-A,1,10
-A,2,15
-A,3,5
-B,1,20
-B,2,25
-B,3,30
-C,1,35
-C,2,40
-C,3,45
-
+RowHeader,B,R,SigDn 4+
+D,4,17,3
+81,0,1,2
+27,0,2,3
