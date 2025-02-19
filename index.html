@@ -27,9 +27,21 @@
             border: 1px solid black;
             padding: 10px;
             text-align: center;
+            min-width: 50px;
+            position: relative;
         }
         th {
             background-color: #ccc;
+            position: relative;
+        }
+        .resizer {
+            position: absolute;
+            top: 0;
+            right: -5px;
+            width: 10px;
+            height: 100%;
+            cursor: col-resize;
+            user-select: none;
         }
     </style>
 </head>
@@ -61,29 +73,69 @@
             if (data.length === 0) return;
             
             const columns = Object.keys(data[0]);
-            const minVal = Math.min(...data.flatMap(row => Object.values(row).slice(1)));
-            const maxVal = Math.max(...data.flatMap(row => Object.values(row).slice(1)));
+            let colWidths = new Array(columns.length).fill(0);
             
-            let headerRow = "<tr><th></th>" + columns.slice(1).map(col => `<th>${col}</th>`).join("") + "</tr>";
+            data.forEach(row => {
+                columns.forEach((col, index) => {
+                    const cellValue = row[col] !== undefined ? row[col].toString() : "";
+                    colWidths[index] = Math.max(colWidths[index], cellValue.length * 10);
+                });
+            });
+            
+            let headerRow = "<tr><th style='width:" + colWidths[0] + "px'></th>" + columns.slice(1).map((col, index) => `<th style='width:${colWidths[index + 1]}px' ondblclick='autoResizeColumn(${index + 1})'><div class='resizer'></div>${col}</th>`).join("") + "</tr>";
             table.innerHTML += headerRow;
             
             let sums = new Array(columns.length - 1).fill(0);
+            let minVal = Math.min(...data.flatMap(row => Object.values(row).slice(1)));
+            let maxVal = Math.max(...data.flatMap(row => Object.values(row).slice(1)));
+            
+            function getColor(value) {
+                let intensity = (value - minVal) / (maxVal - minVal);
+                let red = Math.round(255 * (1 - intensity));
+                let green = Math.round(255 * intensity);
+                return `rgb(${red}, ${green}, 0)`;
+            }
             
             data.forEach(row => {
-                let rowHTML = `<tr><th>${row[columns[0]]}</th>`;
+                let rowHTML = `<tr><th style='width:${colWidths[0]}px'>${row[columns[0]]}</th>`;
                 columns.slice(1).forEach((col, index) => {
                     const val = row[col] || 0;
                     sums[index] += val;
-                    const intensity = (val - minVal) / (maxVal - minVal);
-                    const color = `rgb(${255 - intensity * 255}, ${255}, ${255 - intensity * 255})`;
-                    rowHTML += `<td style="background-color:${color};">${val}</td>`;
+                    let color = getColor(val);
+                    rowHTML += `<td style='width:${colWidths[index + 1]}px; background-color:${color};'>${val}</td>`;
                 });
                 rowHTML += "</tr>";
                 table.innerHTML += rowHTML;
             });
             
-            let sumRow = `<tr><th>Sum</th>` + sums.map(sum => `<td>${sum}</td>`).join("") + "</tr>";
+            let sumRow = `<tr><th style='width:${colWidths[0]}px'>Sum</th>` + sums.map((sum, index) => `<td style='width:${colWidths[index + 1]}px'>${sum}</td>`).join("") + "</tr>";
             table.innerHTML += sumRow;
+
+            addColumnResizers();
+        }
+        
+        function addColumnResizers() {
+            document.querySelectorAll('.resizer').forEach(resizer => {
+                let startX, startWidth, column;
+                resizer.addEventListener('mousedown', (event) => {
+                    column = resizer.parentElement;
+                    startX = event.clientX;
+                    startWidth = column.offsetWidth;
+
+                    document.addEventListener('mousemove', resizeColumn);
+                    document.addEventListener('mouseup', stopResize);
+                });
+
+                function resizeColumn(event) {
+                    const newWidth = startWidth + (event.clientX - startX);
+                    column.style.width = newWidth + 'px';
+                }
+
+                function stopResize() {
+                    document.removeEventListener('mousemove', resizeColumn);
+                    document.removeEventListener('mouseup', stopResize);
+                }
+            });
         }
         
         loadData();
